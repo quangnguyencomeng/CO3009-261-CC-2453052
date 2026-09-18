@@ -1,0 +1,25 @@
+% Official HCMUT report template with one selected lab at a time.
+\documentclass[twoside,final]{hcmut-report}
+\usepackage{codespace}
+
+% Packages from the official template used by lab reports.
+\usepackage{gensymb,textcomp}
+\usepackage{array,longtable,multicol,multirow,siunitx,tabularx}
+\usepackage{enumitem}
+\usepackage{caption,float}
+\usepackage[export]{adjustbox}
+\usepackage[nameinlink]{cleveref}
+
+% One selector controls both the cover and the body.
+\input{source/content/select_lab}
+\input{source/content/\SelectedLab-meta}
+\AtBeginDocument{\counterwithin{lstlisting}{section}}
+
+\begin{document}
+\coverpage
+\tableofcontents
+\listoffigures
+\lstlistoflistings
+\clearpage
+\input{source/content/contents}
+\end{document}
