@@ -31,7 +31,8 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+#define SEGMENT_PINS  (SEG_A_Pin | SEG_B_Pin | SEG_C_Pin | SEG_D_Pin | \
+                       SEG_E_Pin | SEG_F_Pin | SEG_G_Pin)
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -49,12 +50,75 @@
 void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 /* USER CODE BEGIN PFP */
-
+void display7SEG(int num);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+/* The physical display is common-cathode: SET = on, RESET = off. */
+static void setSegments(GPIO_PinState a, GPIO_PinState b, GPIO_PinState c,
+                        GPIO_PinState d, GPIO_PinState e, GPIO_PinState f,
+                        GPIO_PinState g)
+{
+  HAL_GPIO_WritePin(SEG_A_GPIO_Port, SEG_A_Pin, a);
+  HAL_GPIO_WritePin(SEG_B_GPIO_Port, SEG_B_Pin, b);
+  HAL_GPIO_WritePin(SEG_C_GPIO_Port, SEG_C_Pin, c);
+  HAL_GPIO_WritePin(SEG_D_GPIO_Port, SEG_D_Pin, d);
+  HAL_GPIO_WritePin(SEG_E_GPIO_Port, SEG_E_Pin, e);
+  HAL_GPIO_WritePin(SEG_F_GPIO_Port, SEG_F_Pin, f);
+  HAL_GPIO_WritePin(SEG_G_GPIO_Port, SEG_G_Pin, g);
+}
 
+void display7SEG(int num)
+{
+  /* Each call lists the states of A, B, C, D, E, F and G in that order. */
+  switch (num)
+  {
+    case 0:
+      setSegments(GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_SET,
+                  GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_RESET);
+      break;
+    case 1:
+      setSegments(GPIO_PIN_RESET, GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_RESET,
+                  GPIO_PIN_RESET, GPIO_PIN_RESET, GPIO_PIN_RESET);
+      break;
+    case 2:
+      setSegments(GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_RESET, GPIO_PIN_SET,
+                  GPIO_PIN_SET, GPIO_PIN_RESET, GPIO_PIN_SET);
+      break;
+    case 3:
+      setSegments(GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_SET,
+                  GPIO_PIN_RESET, GPIO_PIN_RESET, GPIO_PIN_SET);
+      break;
+    case 4:
+      setSegments(GPIO_PIN_RESET, GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_RESET,
+                  GPIO_PIN_RESET, GPIO_PIN_SET, GPIO_PIN_SET);
+      break;
+    case 5:
+      setSegments(GPIO_PIN_SET, GPIO_PIN_RESET, GPIO_PIN_SET, GPIO_PIN_SET,
+                  GPIO_PIN_RESET, GPIO_PIN_SET, GPIO_PIN_SET);
+      break;
+    case 6:
+      setSegments(GPIO_PIN_SET, GPIO_PIN_RESET, GPIO_PIN_SET, GPIO_PIN_SET,
+                  GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_SET);
+      break;
+    case 7:
+      setSegments(GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_RESET,
+                  GPIO_PIN_RESET, GPIO_PIN_RESET, GPIO_PIN_RESET);
+      break;
+    case 8:
+      setSegments(GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_SET,
+                  GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_SET);
+      break;
+    case 9:
+      setSegments(GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_SET, GPIO_PIN_SET,
+                  GPIO_PIN_RESET, GPIO_PIN_SET, GPIO_PIN_SET);
+      break;
+    default:
+      HAL_GPIO_WritePin(GPIOA, SEGMENT_PINS, GPIO_PIN_RESET);
+      break;
+  }
+}
 /* USER CODE END 0 */
 
 /**
@@ -87,25 +151,28 @@ int main(void)
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
   /* USER CODE BEGIN 2 */
+  int counter = 0;
 
+  /* Startup hardware test: all seven segments on for two seconds. */
+  HAL_GPIO_WritePin(GPIOA, SEGMENT_PINS, GPIO_PIN_SET);
+  HAL_Delay(2000);
+  HAL_GPIO_WritePin(GPIOA, SEGMENT_PINS, GPIO_PIN_RESET);
+  HAL_Delay(500);
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    /* USER CODE END WHILE */
-	  // nối chân âm led đỏ vào pa10 cho nên active-low
-	  // nối chân dương led vàng vào pa11 cho nên active-high
-	  // Pha 1: Đỏ ON (mức 0), Vàng OFF (mức 1)
-	  HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, GPIO_PIN_RESET);
-	  HAL_GPIO_WritePin(LED_YELLOW_GPIO_Port, LED_YELLOW_Pin, GPIO_PIN_SET);
-	  HAL_Delay(5000);
+    if (counter >= 10)
+    {
+      counter = 0;
+    }
 
-	  // Pha 2: Do OFF, Vang ON
-	  HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, GPIO_PIN_SET);
-	  HAL_GPIO_WritePin(LED_YELLOW_GPIO_Port, LED_YELLOW_Pin, GPIO_PIN_RESET);
-	  HAL_Delay(2000);
+    display7SEG(counter++);
+    HAL_Delay(1000);
+    /* USER CODE END WHILE */
+
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
@@ -163,10 +230,10 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOA_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, LED_RED_Pin|LED_YELLOW_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(GPIOA, SEGMENT_PINS, GPIO_PIN_RESET);
 
-  /*Configure GPIO pins : LED_RED_Pin LED_YELLOW_Pin */
-  GPIO_InitStruct.Pin = LED_RED_Pin|LED_YELLOW_Pin;
+  /*Configure GPIO pins : PA4 PA5 PA6 PA7 PA8 PA9 PA10 */
+  GPIO_InitStruct.Pin = SEGMENT_PINS;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
