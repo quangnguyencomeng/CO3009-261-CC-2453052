@@ -1,6 +1,40 @@
 % Official HCMUT report template with one selected lab at a time.
 \documentclass[twoside,final]{hcmut-report}
 \usepackage{codespace}
+\usepackage{tikz}
+\usetikzlibrary{arrows.meta,positioning,calc}
+\usepackage{booktabs}
+\tikzset{
+    fsm_state/.style={
+        circle,
+        draw=black!70,
+        thick,
+        minimum size=1.15cm,
+        align=center,
+        font=\small\bfseries
+    },
+    s_green/.style={fsm_state, fill=green!35},
+    s_amber/.style={fsm_state, fill=yellow!50},
+    s_red/.style={fsm_state, fill=red!30},
+    s_blue/.style={fsm_state, fill=cyan!25},
+    fsm_edge/.style={
+        -{Stealth[length=2.5mm, width=1.8mm]},
+        semithick,
+        draw=black!85
+    },
+    dash_edge/.style={
+        -{Stealth[length=2.5mm, width=1.8mm]},
+        semithick,
+        dashed,
+        draw=red!80!black
+    },
+    t_label/.style={
+        font=\scriptsize\sffamily,
+        align=center,
+        fill=white,
+        inner sep=1.5pt
+    }
+}
 
 % Packages from the official template used by lab reports.
 \usepackage{gensymb,textcomp}

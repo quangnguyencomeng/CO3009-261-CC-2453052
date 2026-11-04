@@ -127,7 +127,7 @@ MCUs often live among high-energy beasts, and often control the beasts.  High en
 If the noise is too intense we cannot filter it out using only software, but will need hardware of some sort (or even a redesign).  But if the noise is only occasional, we can filter it out in software without too much bother.  The trick is that instead of regarding a single button `make' or `break' as valid, we insist on N contiguous makes or breaks to mark a valid button event.  N will be a factor of your button scanning rate and the amount of filtering you want to add.  Bigger N gives more filtering.  The simplest filter (but still a big improvement over no filtering) is just an N of 2, which means compare the current button state with the last button state, and only if both are the same is the output valid.
 
 Note that now we have not two but three button states: active (or pressed), inactive (or released), and indeterminate or invalid (in the middle of filtering, not yet filtered).  In most cases we can treat the invalid state the same as the inactive state, since we care in most cases only about when we go active (from whatever state) and when we cease being active (to inactive or invalid).  With that simplification we can look at simple \mathbf{N = 2} filtering reading a button wired to STM32 MCU:
-\begin{lstlisting}[caption=Read port pin and deboucing]
+\begin{lstlisting}[caption=Read port pin and deboucing,language=C]
 void button_reading(void){
     static unsigned char last_button;
     unsigned char raw_button;
@@ -225,7 +225,7 @@ Step 2 (Figure \ref{bai4_pic_Adding_new_files_to_project_step_3}): Do the same f
 \newpage
 \subsubsection{Code For Read Port Pin and Debouncing}
 \subsubsection{The code in the input\_reading.c file}
-\begin{lstlisting}[caption=Define constants buffers and button\_reading function]
+\begin{lstlisting}[caption=Define constants buffers and button\_reading function,language=C++]
 #include "main.h"
 //we aim to work with more than one buttons
 #define N0_OF_BUTTONS 				       1
@@ -270,7 +270,7 @@ void button_reading(void){
 \end{lstlisting}
 
 % The program reads all buttons two consecutive times and compare the values. If the values are the same, update the value to buttonBuffer. This function should be called inside the timer interrupt service routine.
-% \begin{lstlisting}[caption=Read port pin and deboucing]
+% \begin{lstlisting}[caption=Read port pin and deboucing,language=C]
 % void button_reading(void){
 % 	for(char i = 0; i < N0_OF_BUTTONS; i ++){
 % 		debounceButtonBuffer2[i] =debounceButtonBuffer1[i];
@@ -297,20 +297,20 @@ void button_reading(void){
 % \end{lstlisting}
 
 
-\begin{lstlisting}[caption=Checking a button is pressed or not]
+\begin{lstlisting}[caption=Checking a button is pressed or not,language=C]
 unsigned char is_button_pressed(uint8_t index){
 	if(index >= N0_OF_BUTTONS) return 0;
 	return (buttonBuffer[index] == BUTTON_IS_PRESSED);
 }
 \end{lstlisting}
-\begin{lstlisting}[caption=Checking a button is pressed more than a second or not]
+\begin{lstlisting}[caption=Checking a button is pressed more than a second or not,language=C]
 unsigned char is_button_pressed_1s(unsigned char index){
 	if(index >= N0_OF_BUTTONS) return 0xff;
 	return (flagForButtonPress1s[index] == 1);
 }
 \end{lstlisting}
 \subsubsection{The code in the input\_reading.h file}
-\begin{lstlisting}[caption=Prototype in input\_reading.h file]
+\begin{lstlisting}[caption=Prototype in input\_reading.h file,language=C]
 #ifndef INC_INPUT_READING_H_
 #define INC_INPUT_READING_H_
 void button_reading(void);
@@ -320,7 +320,7 @@ unsigned char is_button_pressed_1s(unsigned char index);
 \end{lstlisting}
 
 \subsubsection{The code in the timer.c file}
-\begin{lstlisting}[caption=Timer interrupt callback function]
+\begin{lstlisting}[caption=Timer interrupt callback function,language=C]
 #include "main.h"
 #include "input_reading.h"
 
@@ -353,7 +353,7 @@ To solve the example problem, we define 3 states as follows:
 \newpage
 \subsubsection{The code for the FSM in the input\_processing.c file}
 Please note that \emph{fsm\_for\_input\_processing} function should be called inside the super loop of the main functin. 
-\begin{lstlisting}[caption=The code in the input\_processing.c file]
+\begin{lstlisting}[caption=The code in the input\_processing.c file,language=C]
 #include "main.h"
 #include "input_reading.h"
 
@@ -386,7 +386,7 @@ void fsm_for_input_processing(void){
 }
 \end{lstlisting}
 \subsubsection{The code in the input\_processing.h}
-\begin{lstlisting}[caption=Code in the input\_processing.h file]
+\begin{lstlisting}[caption=Code in the input\_processing.h file,language=C]
 #ifndef INC_INPUT_PROCESSING_H_
 #define INC_INPUT_PROCESSING_H_
 
@@ -397,7 +397,7 @@ void fsm_for_input_processing(void);
 
 
 \subsubsection{The code in the main.c file}
-\begin{lstlisting}[caption=The code in the main.c file]
+\begin{lstlisting}[caption=The code in the main.c file,language=C]
 #include "main.h"
 #include "input_processing.h"
 //don't modify this part
@@ -448,77 +448,413 @@ You are required to build an application of a traffic light in a cross road whic
 \end{itemize}
 
 \newpage
-\subsubsection{Exercise 1: Sketch an FSM}
-Your task in this exercise is to sketch an FSM that describes your idea of how to solve the problem.
+\subsection*{Exercise 1: Sketch an FSM}
 
-Please add your report here.
+\noindent\textbf{1. Traffic-Phase FSM (Mode 1 --- Normal Mode)} \\
+\small The normal traffic cycle continuously repeats 4 phases: $\text{Start} \longrightarrow S_0 \longrightarrow S_1 \longrightarrow S_2 \longrightarrow S_3 \longrightarrow S_0$. Pressing the \texttt{MODE} button at any state halts the cycle and transitions to Mode 2 for duration configuration.
+
+\vspace{-0.25cm}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1.5cm and 4.2cm]
+
+    % 4 State circular nodes
+    \node[s_green] (S0) {$S_0$};
+    \node[s_amber, right=of S0] (S1) {$S_1$};
+    \node[s_amber, below=of S0] (S3) {$S_3$};
+    \node[s_green, right=of S3] (S2) {$S_2$};
+
+    % Start / Reset
+    \node[left=0.8cm of S0, font=\scriptsize\bfseries, align=center] (start) {Start /\\Reset};
+    \draw[fsm_edge] (start) -- (S0);
+
+    % Main state transitions
+    \draw[fsm_edge] (S0) -- node[above, t_label] {timeout green\\(H: Amber, V: Red)} (S1);
+    \draw[fsm_edge] (S1) -- node[right, t_label] {timeout amber\\(H: Red, V: Green)} (S2);
+    \draw[fsm_edge] (S2) -- node[below, t_label] {timeout green\\(H: Red, V: Amber)} (S3);
+    \draw[fsm_edge] (S3) -- node[left, t_label] {timeout amber\\(H: Green, V: Red)} (S0);
+
+    % Transition to Mode 2
+    \node[circle, draw=red!70, dashed, fill=red!10, minimum size=1.0cm, font=\scriptsize\bfseries, align=center]
+          at ($(S0)!0.5!(S2)$) (M2_mid) {MODE 2\\(Edit Red)};
+          
+    \draw[dash_edge] (S0) -- (M2_mid);
+    \draw[dash_edge] (S1) -- (M2_mid);
+    \draw[dash_edge] (S2) -- (M2_mid);
+    \draw[dash_edge] (S3) -- node[below, font=\tiny, text=red!80!black] {is\_button\_pressed(MODE)} (M2_mid);
+
+\end{tikzpicture}
+\vspace{-0.4cm}
+\caption{Traffic-phase FSM diagram in Mode 1.}
+\end{figure}
+
+\vspace{-0.35cm}
+\noindent\textbf{7-Segment Display Output per Road Direction (Mode 1):}
+\begin{center}
+\footnotesize
+\begin{tabularx}{\textwidth}{@{}cccp{2.4cm}X@{}}
+\toprule
+\textbf{State} & \textbf{Horizontal} & \textbf{Vertical} & \textbf{Duration} & \textbf{7-Segment Countdown Value} \\ \midrule
+$S_0$ & Green & Red & Green time & Horizontal: green remaining; Vertical: red remaining ($t_{\text{green}} + t_{\text{amber}}$) \\
+$S_1$ & Amber & Red & Amber time & Both directions display remaining amber time \\
+$S_2$ & Red & Green & Green time & Horizontal: red remaining ($t_{\text{green}} + t_{\text{amber}}$); Vertical: green remaining \\
+$S_3$ & Red & Amber & Amber time & Both directions display remaining amber time \\ \bottomrule
+\end{tabularx}
+\end{center}
+
+\vspace{-0.15cm}
+\noindent\textbf{2. Mode-Control and Configuration FSM} \\
+\small Includes 4 modes: Mode 1 (normal operation) and Modes 2, 3, 4 (editing Red, Amber, and Green durations). Selected color LEDs blink at 2~Hz. Two digits display the set value ($1 \div 99$), and the other two display the mode index.
+
+\vspace{-0.25cm}
+\begin{figure}[H]
+\centering
+\begin{tikzpicture}[node distance=1.5cm and 4.2cm]
+
+    % 4 Mode circular nodes
+    \node[s_blue] (M1) {\textbf{M1}};
+    \node[s_red, right=of M1] (M2) {\textbf{M2}};
+    \node[s_green, below=of M1] (M4) {\textbf{M4}};
+    \node[s_amber, right=of M4] (M3) {\textbf{M3}};
+
+    % Mode Subtitles
+    \node[above=1pt of M1, font=\tiny\bfseries] {Normal};
+    \node[above=1pt of M2, font=\tiny\bfseries] {Edit RED};
+    \node[below=1pt of M3, font=\tiny\bfseries] {Edit AMBER};
+    \node[below=1pt of M4, font=\tiny\bfseries] {Edit GREEN};
+
+    % Cyclic MODE transitions
+    \draw[fsm_edge] (M1) -- node[above, t_label] {is\_button\_pressed(MODE)} (M2);
+    \draw[fsm_edge] (M2) -- node[right, t_label] {is\_button\_pressed(MODE)} (M3);
+    \draw[fsm_edge] (M3) -- node[below, t_label] {is\_button\_pressed(MODE)} (M4);
+    \draw[fsm_edge] (M4) -- node[left, t_label] {is\_button\_pressed(MODE)} (M1);
+
+    % Self-loop INCREASE (1..99)
+    \draw[fsm_edge] (M2) edge[out=40, in=85, loop] node[above right=-2pt, t_label] {INC\\(+1)} (M2);
+    \draw[fsm_edge] (M3) edge[out=-40, in=-85, loop] node[below right=-2pt, t_label] {INC\\(+1)} (M3);
+    \draw[fsm_edge] (M4) edge[out=-140, in=-95, loop] node[below left=-2pt, t_label] {INC\\(+1)} (M4);
+
+    % SET transitions returning to Mode 1 / S0
+    \draw[dash_edge, bend right=28] (M2) to node[above, font=\scriptsize, text=red!80!black] {is\_button\_pressed(SET) $\to$ Save \& Return to $S_0$} (M1);
+    \draw[dash_edge] (M3) -- node[sloped, above, font=\scriptsize, text=red!80!black] {is\_button\_pressed(SET)} (M1);
+
+\end{tikzpicture}
+\vspace{-0.4cm}
+\caption{Mode-control and duration-configuration FSM diagram.}
+\end{figure}
 
 \subsubsection{Exercise 2: Proteus Schematic}
-Your task in this exercise is to draw a Proteus schematic for the problem above. 
+The completed crossroad circuit contains one STM32F103C6, twelve traffic LEDs (four red, four amber, and four green), four common-anode seven-segment displays, four PNP digit-enable transistors, sixteen resistors, and three push buttons. The twelve LED resistors limit LED current; four base resistors drive the PNP transistors. The circuit also includes the required supply and ground terminals.
 
-Please add your report here.
+The horizontal road signals are connected to PA1--PA3 (red, green, and amber); the vertical road signals use PA4--PA6 (red, amber, and green). The four digit enables use PA7--PA10. The horizontal and vertical segment buses use PB0--PB6 and PB7--PB13, respectively. MODE, INCREASE, and SET use PA11, PA12, and PA13. The buttons are active-low with pull-ups. The common-anode display segments and PNP digit enables are also active-low.
 
+Figure~\ref{lab3_ex2_schematic} presents the complete Proteus schematic used for all later exercises.
+
+\begin{figure}[H]
+    \centering
+    \IfFileExists{source/picture/bai_3/lab3_ex2.png}
+      {\includegraphics[width=0.98\linewidth]{source/picture/bai_3/lab3_ex2.png}}
+      {\fbox{\parbox{0.92\linewidth}{\centering Add the full Proteus schematic here:\\
+       \texttt{source/picture/bai\_3/lab3\_ex2.png}}}}
+    \caption{Complete Proteus schematic for the crossroad traffic-light controller}
+    \label{lab3_ex2_schematic}
+\end{figure}
 
 \subsubsection{Exercise 3: Create STM32 Project}
-Your task in this exercise is to create a project that has pin corresponding to the Proteus schematic that you draw in previous section. You need to set up your timer interrupt is about 10ms.
+The STM32CubeIDE project targets the STM32F103C6 and uses the HSI clock at 8 MHz. GPIOA and GPIOB are configured to match the schematic in Exercise 2. TIM2 generates the periodic interrupt used by the button reader, display scanner, and software timers.
 
-Please add your report here.
+With an 8 MHz timer clock, the update frequency is
+\[
+f_{\mathrm{update}} =
+\frac{8\,000\,000}{(7999+1)(9+1)} = 100\ \mathrm{Hz},
+\]
+which gives a 10 ms interrupt interval.
+
+\begin{lstlisting}[caption={TIM2 configuration for a 10 ms interrupt},language=C]
+htim2.Instance = TIM2;
+htim2.Init.Prescaler = 7999U;
+htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
+htim2.Init.Period = 9U;
+htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+if (HAL_TIM_Base_Init(&htim2) != HAL_OK)
+{
+  Error_Handler();
+}
+
+/* Start the periodic interrupt after application initialization. */
+HAL_TIM_Base_Start_IT(&htim2);
+\end{lstlisting}
+
+The pin assignment and TIM2 settings are shown in the CubeMX captures below.
+
+\begin{figure}[!htp]
+    \centering
+    \IfFileExists{source/picture/bai_3/lab3_ex3_pin.png}
+      {\includegraphics[width=0.67\linewidth]{source/picture/bai_3/lab3_ex3_pin.png}}
+      {\fbox{\parbox{0.6\linewidth}{\centering Add the STM32 pin configuration screenshot here:\\
+       \texttt{source/picture/bai\_3/lab3\_ex3\_pin.png}}}}
+    \hfill
+    \IfFileExists{source/picture/bai_3/lab3_ex3_tim.png}
+      {\includegraphics[width=0.30\linewidth]{source/picture/bai_3/lab3_ex3_tim.png}}
+      {\fbox{\parbox{0.28\linewidth}{\centering Add the TIM2 settings screenshot here:\\
+       \texttt{source/picture/bai\_3/lab3\_ex3\_tim.png}}}}
+    \caption{STM32 GPIO pin assignment and TIM2 parameter settings}
+    \label{lab3_ex3_ioc}
+\end{figure}
 
 \subsubsection{Exercise 4: Modify Timer Parameters}
-Your task in this exercise is to modify the timer settings so that when we want to change the time duration of the timer interrupt, we change it the least and it will not affect the overall system. For example, the current system we have implemented is that it can blink an LED in 2 Hz, with the timer interrupt duration is 10ms. However, when we want to change the timer interrupt duration to 1ms or 100ms, it will not affect the 2Hz blinking LED. 
+Exercise 4 compares two TIM2 update intervals by changing \texttt{LAB3\_TIMER\_TICK\_MS}. With an 8 MHz TIM2 clock and prescaler 799, the counter clock is 10 kHz. The auto-reload value is calculated as \texttt{(LAB3\_TIMER\_TICK\_MS * 10U) - 1U}; therefore, a 1 ms tick uses ARR = 9, while a 100 ms tick uses ARR = 999. The screenshots below show both macro selections.
 
-Please add your report here.
+The software timer converts requested delays to hardware ticks by rounding up. Thus, the 250 ms LED blink half-period is 250 ticks with a 1 ms tick, but 3 ticks (300 ms) with a 100 ms tick. The latter setting makes the blink slower because the timer resolution is coarser.
+
+The timer tick and blink half-period are defined separately. Change the tick macro to select either configuration; the TIM2 period follows from the expression in \texttt{main.c}.
+
+\begin{lstlisting}[caption={Selecting the timer tick and application blink interval},language=C]
+#define LAB3_TIMER_TICK_MS          1U  /* use 100U for the second case */
+#define LAB3_BLINK_HALF_PERIOD_MS 250U
+\end{lstlisting}
+
+TIM2 uses a prescaler of 799 and derives its auto-reload value from the selected tick:
+
+\begin{lstlisting}[caption={TIM2 prescaler and auto-reload calculation},language=C]
+htim2.Init.Prescaler = 799U;
+htim2.Init.Period = (LAB3_TIMER_TICK_MS * 10U) - 1U;
+\end{lstlisting}
+
+The blink behavior can be demonstrated in the Exercise 6 or Exercise 10 simulation video.
+
+\begin{figure}[!htp]
+    \centering
+    \IfFileExists{source/picture/bai_3/lab3_ex4_tick1.png}
+      {\includegraphics[width=0.47\linewidth]{source/picture/bai_3/lab3_ex4_tick1.png}}
+      {\fbox{\parbox{0.43\linewidth}{\centering Add the 1 ms tick macro screenshot:\\
+       \texttt{source/picture/bai\_3/lab3\_ex4\_tick1.png}}}}
+    \hfill
+    \IfFileExists{source/picture/bai_3/lab3_ex4_tick100.png}
+      {\includegraphics[width=0.47\linewidth]{source/picture/bai_3/lab3_ex4_tick100.png}}
+      {\fbox{\parbox{0.43\linewidth}{\centering Add the 100 ms tick macro screenshot:\\
+       \texttt{source/picture/bai\_3/lab3\_ex4\_tick100.png}}}}
+    \caption{Source selections for 1 ms and 100 ms timer ticks}
+    \label{lab3_ex4_timer}
+\end{figure}
+
 \subsubsection{Exercise 5: Adding code for button debouncing}
-Following the example of button reading and debouncing in the previous section, your tasks in this exercise are:
-\begin{itemize}
-    \item To add new files for input reading and output display,
-    \item To add code for button debouncing,
-    \item To add code for increasing mode when the first button is pressed. 
-\end{itemize}
+The input and display functions are separated into reusable modules. Button input and debouncing are implemented in \texttt{Core/Inc/button.h} and \texttt{Core/Src/button.c}. Seven-segment output is implemented in \texttt{Core/Inc/seven\_segment.h} and \texttt{Core/Src/seven\_segment.c}. The application calls these modules from \texttt{traffic\_app.c}; the timer interrupt samples the buttons and refreshes the multiplexed displays.
 
-Please add your report here.
+The three active-low buttons are sampled once per timer tick. Each switch connects its input to ground when pressed, so the GPIO reads low. A state change is accepted only after two consecutive matching samples; this filters short switch bounces. A valid press is then queued as one event for the main loop.
+
+In the circuit shown in Figure~\ref{lab3_ex5_buttons}, \texttt{sw0} is MODE, \texttt{sw1} is INCREASE, and \texttt{sw2} is SET. MODE cycles through Normal, Red edit, Amber edit, Green edit, and back to Normal. INCREASE adds one to the currently selected duration in an editing mode; it has no effect in Normal mode. SET leaves an editing mode and resumes the traffic cycle with the current values; it has no effect in Normal mode.
+
+\begin{lstlisting}[caption={Button debounce and press-event generation},language=C]
+if (sample == buttons[i].raw_state)
+{
+  if (buttons[i].stable_samples < LAB3_BUTTON_DEBOUNCE_SAMPLES)
+    buttons[i].stable_samples++;
+}
+else
+{
+  buttons[i].raw_state = sample;
+  buttons[i].stable_samples = 1U;
+}
+
+if (buttons[i].stable_samples >= LAB3_BUTTON_DEBOUNCE_SAMPLES &&
+    buttons[i].stable_state != buttons[i].raw_state)
+{
+  buttons[i].stable_state = buttons[i].raw_state;
+  if (buttons[i].stable_state == GPIO_PIN_RESET)
+    press_events |= (uint8_t)(1U << i);
+}
+\end{lstlisting}
+
+The debounce configuration is \texttt{LAB3\_BUTTON\_DEBOUNCE\_SAMPLES = 2}. The following application code shows how the first button advances the mode after debouncing:
+
+\begin{lstlisting}[caption={Advancing the mode on a debounced MODE press},language=C]
+if (button_take_press(BUTTON_MODE) != 0U)
+{
+  if (mode == MODE_NORMAL) enter_edit(MODE_RED);
+  else if (mode == MODE_RED) enter_edit(MODE_AMBER);
+  else if (mode == MODE_AMBER) enter_edit(MODE_GREEN);
+  else enter_normal();
+  return;
+}
+\end{lstlisting}
+
+The demonstration clip shows the buttons being used and the debounced response: \href{https://github.com/quangnguyencomeng/CO3009-261-CC-2453052/blob/main/Lab/lab_reports/source/vids/lab3_ex5.mp4}{Exercise 5 demonstration video}.
+
+\begin{figure}[!htp]
+    \centering
+    \IfFileExists{source/picture/bai_3/lab3_ex5.png}
+      {\includegraphics[width=0.55\linewidth]{source/picture/bai_3/lab3_ex5.png}}
+      {\fbox{\parbox{0.52\linewidth}{\centering Add the three-button circuit image here:\\
+       \texttt{source/picture/bai\_3/lab3\_ex5.png}}}}
+    \caption{Active-low MODE, INCREASE, and SET buttons}
+    \label{lab3_ex5_buttons}
+\end{figure}
+
 \newpage
 \subsubsection{Exercise 6: Adding code for displaying modes}
-Your tasks in this exercise are:
-\begin{itemize}
-    \item To add code for display mode on seven-segment LEDs, and
-    \item To add code for blinking LEDs depending on the mode that is selected. 
-\end{itemize}
+Modes 2, 3, and 4 edit red, amber, and green durations. The selected color LEDs blink with a 250 ms on/off half-period (2 Hz). The first two digits show the selected duration; the other two show the mode number. The four common-anode displays are multiplexed as two independent road pairs.
 
-Please add your report here.
+\begin{lstlisting}[caption={Rendering an editing mode},language=C]
+static void render_edit(void)
+{
+  TrafficColour colour = edited_colour();
+  uint8_t value = durations[colour];
+
+  traffic_led_all_off();
+  if (blink_on != 0U)
+    traffic_led_set_mask(colour, 0x0FU);
+
+  seven_segment_set_values((int8_t)(value / 10U),
+                           (int8_t)(value % 10U),
+                           0, (int8_t)mode);
+}
+\end{lstlisting}
+
+The four circuit captures below show the normal traffic output and the selected-color indication in Modes 2--4. The videos demonstrate INCREASE behavior in two ways: \href{https://github.com/quangnguyencomeng/CO3009-261-CC-2453052/blob/main/Lab/lab_reports/source/vids/lab3_ex6_increase_step_by_step.mp4}{increase once per button press} and \href{https://github.com/quangnguyencomeng/CO3009-261-CC-2453052/blob/main/Lab/lab_reports/source/vids/lab3_ex6_increase_hold.mp4}{continuous increase while holding the button}.
+
+\begin{figure}[!htp]
+    \centering
+    \begin{minipage}[t]{0.47\linewidth}\centering
+      \includegraphics[width=\linewidth]{source/picture/bai_3/lab3_ex6_m1.png}\\
+      \small (a) Mode 1: normal traffic operation
+    \end{minipage}\hfill
+    \begin{minipage}[t]{0.47\linewidth}\centering
+      \includegraphics[width=\linewidth]{source/picture/bai_3/lab3_ex6_m2.png}\\
+      \small (b) Mode 2: red-duration selection
+    \end{minipage}\\[2mm]
+    \begin{minipage}[t]{0.47\linewidth}\centering
+      \includegraphics[width=\linewidth]{source/picture/bai_3/lab3_ex6_m3.png}\\
+      \small (c) Mode 3: amber-duration selection
+    \end{minipage}\hfill
+    \begin{minipage}[t]{0.47\linewidth}\centering
+      \includegraphics[width=\linewidth]{source/picture/bai_3/lab3_ex6_m4.png}\\
+      \small (d) Mode 4: green-duration selection
+    \end{minipage}
+    \caption{Circuit output in Normal mode and the three duration-editing modes}
+    \label{lab3_ex6_mode}
+\end{figure}
+
 \subsubsection{Exercise 7: Adding code for increasing time duration value for the red LEDs}
-Your tasks in this exercise are: 
-\begin{itemize}
-    \item to use the second button to increase the time duration value of  the red LEDs
-    \item to use the third button to set the value for the red LEDs.
-\end{itemize}
-Please add your report here.
+In Mode 2, INCREASE changes the red duration and SET returns to Mode 1 with the chosen value retained during the current run. The general increment code wraps a value above 99 to 1. The red-duration helper also keeps red related to green and amber: when a wrapped candidate would break that relation, the helper recalculates red from the other two durations. Consequently, an increase at the upper boundary can leave the displayed red value unchanged.
+
+\begin{lstlisting}[caption={Increasing the selected duration},language=C]
+if (increase_pressed != 0U)
+{
+  TrafficColour colour = edited_colour();
+  durations[colour]++;
+  if (durations[colour] > TRAFFIC_MAX_DURATION_SECONDS)
+    durations[colour] = TRAFFIC_MIN_DURATION_SECONDS;
+
+  reconcile_durations(colour);
+  render_edit();
+}
+\end{lstlisting}
+
+The video demonstrates the upper-boundary behavior in Mode 2 with amber set to 2 seconds and green set to 3 seconds. When INCREASE is pressed while red is 99 seconds, the increment first produces 100, which wraps to 1. The reconciliation logic then detects that red is not greater than amber and recalculates red as amber plus green, so the displayed red duration returns to 5 seconds. The demonstration is available here: \href{https://github.com/quangnguyencomeng/CO3009-261-CC-2453052/blob/main/Lab/lab_reports/source/vids/lab3_ex7.mp4}{Exercise 7 red-duration upper-boundary video}.
 
 \subsubsection{Exercise 8: Adding code for increasing time duration value for the amber LEDs}
+Mode 3 edits the amber duration while keeping the red duration fixed. The green duration is recalculated as red minus amber, so the relation red = amber + green is preserved. For example, with red = 5, amber = 2, and green = 3, two INCREASE presses change amber to 4 and green to 1 while red remains 5. If amber reaches the red value, amber wraps to 1 so that green remains at least 1.
 
-Your tasks in this exercise are: 
-\begin{itemize}
-    \item to use the second button to increase the time duration value of the amber LEDs
-    \item to use the third button to set the value for the amber LEDs.
-\end{itemize}
-Please add your report here.
+\begin{lstlisting}[caption={Keeping red fixed while amber is edited},language=C]
+else if (changed == TRAFFIC_AMBER)
+{
+  if (amber >= red)
+  {
+    amber = TRAFFIC_MIN_DURATION_SECONDS;
+    durations[TRAFFIC_AMBER] = amber;
+  }
+  durations[TRAFFIC_GREEN] = red - amber;
+}
+\end{lstlisting}
+
+The two captures show Mode 3 before and after an INCREASE action: the amber duration changes from 05 to 06. The video demonstrates the adjustment: \href{https://github.com/quangnguyencomeng/CO3009-261-CC-2453052/blob/main/Lab/lab_reports/source/vids/lab3_ex8.mp4}{Exercise 8 amber-duration adjustment video}.
+
+\begin{figure}[!htp]
+    \centering
+    \begin{minipage}[t]{0.48\linewidth}\centering
+      \includegraphics[width=\linewidth]{source/picture/bai_3/lab3_ex8_5.png}\\
+      \small (a) Mode 3, amber duration: 05
+    \end{minipage}\hfill
+    \begin{minipage}[t]{0.48\linewidth}\centering
+      \includegraphics[width=\linewidth]{source/picture/bai_3/lab3_ex8_6.png}\\
+      \small (b) Mode 3, amber duration: 06
+    \end{minipage}
+    \caption{Amber-duration editing before and after increasing the selected value}
+    \label{lab3_ex8_amber}
+\end{figure}
+
 \subsubsection{Exercise 9: Adding code for increasing time duration value for the green LEDs}
+Mode 4 edits the green duration while keeping amber unchanged. After each INCREASE press, a value above 99 wraps to 1, then the red duration is recalculated as green plus amber. If that sum exceeds 99, red is limited to 99.
 
-Your tasks in this exercise are: 
-\begin{itemize}
-    \item to use the second button to increase the  time duration value of the green LEDs
-    \item to use the third button to set the value for the green LEDs.
-\end{itemize}
-Please add your report here.
+\begin{lstlisting}[caption={Recomputing red after a green-duration change},language=C]
+else
+{
+  durations[TRAFFIC_RED] = green + amber <= 99U ?
+                           green + amber : 99U;
+}
+\end{lstlisting}
+
+The video demonstrates the upper-boundary sequence with amber fixed at 2 seconds: green increases from 3 to 99, wraps to 1 on the next press, and is then increased to 7. Red is recalculated throughout; at green = 7, red becomes 9 seconds (7 + 2). The demonstration is available here: \href{https://github.com/quangnguyencomeng/CO3009-261-CC-2453052/blob/main/Lab/lab_reports/source/vids/lab3_ex9.mp4}{Exercise 9 green-duration upper-boundary video}.
+
+\begin{figure}[!htp]
+    \centering
+    \IfFileExists{source/picture/bai_3/lab03_ex09_green.png}
+      {\includegraphics[width=0.9\linewidth]{source/picture/bai_3/lab03_ex09_green.png}}
+      {\fbox{\parbox{0.84\linewidth}{\centering Add a green-duration editing screenshot here:\\
+       \texttt{source/picture/bai\_3/lab03\_ex09\_green.png}}}}
+    \caption{Green-duration editing mode}
+    \label{lab3_ex9_green}
+\end{figure}
 
 \subsubsection{Exercise 10: To finish the project}
-Your tasks in this exercise are:
-\begin{itemize}
-    \item To integrate all the previous tasks to one final project
-    \item To create a video to show all features in the specification
-    \item To add a report to describe your solution for each exercise.
-    \item To submit your report and code on the BKeL
-\end{itemize}
+Exercise 10 integrates the four-phase traffic controller, button debouncing, mode selection, seven-segment multiplexing, and duration adjustment. In normal operation, the phase sequence repeats as follows:
+\[
+S_0\ (\text{Horizontal Green, Vertical Red}) \rightarrow
+S_1\ (\text{Horizontal Amber, Vertical Red}) \rightarrow
+S_2\ (\text{Horizontal Red, Vertical Green}) \rightarrow
+S_3\ (\text{Horizontal Red, Vertical Amber}) \rightarrow S_0.
+\]
+Each phase advances when its timer expires. MODE enters the duration-editing modes; INCREASE changes the selected duration; SET returns to normal operation.
+
+The main loop handles application events while the timer callback services the periodic tasks:
+
+\begin{lstlisting}[caption={Main loop and TIM2 application tick},language=C]
+while (1)
+{
+  traffic_app_run();
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim->Instance == TIM2)
+    traffic_app_timer_tick();
+}
+\end{lstlisting}
+
+The four Proteus captures document the complete phase sequence in order. In every phase, the opposing direction remains red during the other direction's green or amber interval. The integrated demonstration video shows the repeating cycle, editing the red, amber, and green durations, and using SET to return to normal mode: \href{https://github.com/quangnguyencomeng/CO3009-261-CC-2453052/blob/main/Lab/lab_reports/source/vids/lab3_ex10.mp4}{Exercise 10 complete-system demonstration video}.
+
+\begin{figure}[!htp]
+    \centering
+    \begin{minipage}[t]{0.48\linewidth}\centering
+      \includegraphics[width=\linewidth]{source/picture/bai_3/lab3_ex10_1.png}\\
+      \small (a) Phase $S_0$: horizontal green, vertical red
+    \end{minipage}\hfill
+    \begin{minipage}[t]{0.48\linewidth}\centering
+      \includegraphics[width=\linewidth]{source/picture/bai_3/lab3_ex10_2.png}\\
+      \small (b) Phase $S_1$: horizontal amber, vertical red
+    \end{minipage}\\[2mm]
+    \begin{minipage}[t]{0.48\linewidth}\centering
+      \includegraphics[width=\linewidth]{source/picture/bai_3/lab3_ex10_3.png}\\
+      \small (c) Phase $S_2$: horizontal red, vertical green
+    \end{minipage}\hfill
+    \begin{minipage}[t]{0.48\linewidth}\centering
+      \includegraphics[width=\linewidth]{source/picture/bai_3/lab3_ex10_4.png}\\
+      \small (d) Phase $S_3$: horizontal red, vertical amber
+    \end{minipage}
+    \caption{Integrated traffic-light controller across its four phases, shown in sequence}
+    \label{lab3_ex10_phases}
+\end{figure}
 
 % \subsection{Problem 1}
 
