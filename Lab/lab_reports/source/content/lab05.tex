@@ -1,3 +1,6 @@
+% Number the handout's main topics as 1, 2, 3, ... within this lab.
+\renewcommand{\thesubsection}{\arabic{subsection}}
+\renewcommand{\thesubsubsection}{\thesubsection.\arabic{subsubsection}}
 \section{A cooperative scheduler}
 
 \subsection{Introduction}
@@ -708,6 +711,8 @@ of the initial task delays.
 
 \subsubsection{Portability}
 \subsection{Objectives}
+The earlier examples reproduce the instructional approach in the handout. The implementation below uses absolute deadlines and a shared tick counter, with constant-time clock updates in the timer ISR. The task representation and return codes are specified in the Problem solution.
+
 The aim of this lab is to design and implement a cooperate scheduler to accurately provide timeouts and trigger activities. You should add a file for the scheduler implementation and modify the main system call loop to handle timer interrupts.
 
 \subsection{Problem}
@@ -722,6 +727,390 @@ The aim of this lab is to design and implement a cooperate scheduler to accurate
 
 You should add more functions if you think it will help you to solve this problem. 
 Your main program must have 5 tasks running periodically in 0.5 second, 1 second, 1.5 seconds, 2 seconds, 2.5 seconds. 
+
+\subsubsection{Solution based on the application source}
+The following implementation is taken from the project in \texttt{Lab/Lab\_4}. The listings and explanations describe the application used for this laboratory.
+
+\subsubsection{System configuration and software organization}
+The MCU uses its internal HSI oscillator at 8~MHz, with the AHB, APB1, and APB2 clock dividers set to one. TIM2 generates a 10~ms tick. USART1 uses 115200 baud, eight data bits, no parity, one stop bit, and no hardware flow control.
+
+\begin{table}[!htp]
+    \centering
+    \begin{tabular}{lll}
+        \toprule
+        Application & MCU pin & Proteus connection \\
+        \midrule
+        LED1, label \texttt{led0} & PA1 & D1 cathode \\
+        LED2, label \texttt{led1} & PA2 & D2 cathode \\
+        LED3, label \texttt{led2} & PA3 & D3 cathode \\
+        LED4, label \texttt{led3} & PA4 & D4 cathode \\
+        LED5, label \texttt{led4} & PA5 & D5 cathode \\
+        USART1 TX & PA9 & Virtual Terminal RXD \\
+        \bottomrule
+    \end{tabular}
+    \caption{Application pin assignments}
+    \label{lab4_pins}
+\end{table}
+
+The LED anodes connect to the positive supply. A high GPIO output turns the associated LED off, while a low output turns it on. Each callback toggles one LED once. Thus, a 500~ms task interval produces a complete on/off cycle of 1000~ms.
+
+The Proteus project is supplied as \texttt{Lab/LAB04\_PHU/lab04.pdsprj}. The demonstration videos show the simulation and Virtual Terminal output; Table~\ref{lab4_pins} specifies the circuit connections.
+
+The application source is divided into the following modules.
+\begin{itemize}
+    \item \texttt{main.c} initializes the hardware, calls \texttt{App\_Init()}, starts TIM2, and repeatedly calls the dispatcher.
+    \item \texttt{sch.c} and \texttt{sch.h} define the queue, clock, scheduler API, IDs, and error codes.
+    \item \texttt{tasks.c} and \texttt{tasks.h} define the application callbacks, registrations, demo switches, and UART logging.
+    \item \texttt{stm32f1xx\_it.c} forwards TIM2 and USART1 interrupts to HAL. \texttt{stm32f1xx\_hal\_msp.c} enables peripheral clocks, UART pins, and NVIC interrupts.
+\end{itemize}
+
+\subsubsection{Scheduler design}
+\paragraph{Task representation and initialization}
+Each registration stores a function pointer, an absolute deadline, a period, and an ID. All delays and periods use ticks, with \texttt{SCH\_TICK\_MS = 10U}. A zero period selects one-shot execution. A zero delay makes a task eligible at the next dispatcher call.
+
+\begin{lstlisting}[caption={Task record and shared scheduler state in sch.c},language=C]
+typedef struct {
+    void (*pTask)(void);
+    uint32_t deadline;
+    uint32_t period;
+    uint32_t id;
+} SCH_Task;
+
+static SCH_Task queue[SCH_MAX_TASKS];
+static uint8_t task_count;
+static uint32_t next_id;
+static volatile uint32_t tick_count;
+static SCH_Error last_error;
+\end{lstlisting}
+
+The fixed-size array holds up to 16 registrations. It is ordered by deadline and then by increasing registration ID for equal deadlines. The earliest task is therefore at \texttt{queue[0]}. The ISR updates \texttt{tick\_count}, while the main context edits the task queue. The \texttt{volatile} qualifier makes accesses to the tick counter visible across these contexts.
+
+\begin{lstlisting}[caption={Scheduler initialization},language=C]
+void SCH_Init(void)
+{
+    uint8_t i;
+    /* Call before starting TIM2. Reset starts a new ID/clock session. */
+    for (i = 0U; i < SCH_MAX_TASKS; ++i) {
+        queue[i] = (SCH_Task){0};
+    }
+    task_count = 0U;
+    next_id = 1U;
+    tick_count = 0U;
+    last_error = SCH_ERR_NONE;
+}
+\end{lstlisting}
+
+Initialization runs before TIM2 starts. It clears the queue, clock, and last error, and begins the ID sequence at one. ID zero is reserved for registration failure.
+
+\paragraph{Ordered insertion and removal}
+Insertion shifts later tasks to the right to create room for the new task. Inserting deadline 20 into deadlines 10, 30, and 50 produces 10, 20, 30, and 50. Equal deadlines are ordered by registration ID.
+
+\begin{lstlisting}[caption={Deadline comparison and sorted insertion},language=C]
+static uint8_t time_before(uint32_t a, uint32_t b)
+{
+    return (uint8_t)((int32_t)(a - b) < 0);
+}
+
+static void insert_task(SCH_Task task)
+{
+    uint8_t pos = task_count;
+    while (pos > 0U) {
+        SCH_Task previous = queue[pos - 1U];
+        if (!time_before(task.deadline, previous.deadline) &&
+            !(task.deadline == previous.deadline && task.id < previous.id)) {
+            break;
+        }
+        queue[pos] = previous;
+        --pos;
+    }
+    queue[pos] = task;
+    ++task_count;
+}
+\end{lstlisting}
+
+The signed-difference comparison supports tick wraparound when intervals and outstanding lateness remain below $2^{31}$ ticks. The maximum accepted delay or period is \texttt{0x7FFFFFFF}. Removal shifts subsequent entries left and clears the vacated slot.
+
+\begin{lstlisting}[caption={Removing an array entry},language=C]
+static void remove_at(uint8_t index)
+{
+    uint8_t i;
+    for (i = index; i + 1U < task_count; ++i) {
+        queue[i] = queue[i + 1U];
+    }
+    --task_count;
+    queue[task_count] = (SCH_Task){0};
+}
+\end{lstlisting}
+
+\subsubsection{Implementation of the four required functions}
+\paragraph{SCH\_Update}
+TIM2 calls \texttt{SCH\_Update()} once every 10~ms. Advancing a common clock changes the remaining time to every stored absolute deadline. Deadline eligibility is checked by the dispatcher.
+
+\begin{lstlisting}[caption={Constant-time tick update and timestamps},language=C]
+void SCH_Update(void)
+{
+    /* O(1): no array scan, callbacks, UART or queue edits in the ISR. */
+    ++tick_count;
+}
+
+uint32_t SCH_GetTicks(void)
+{
+    /* Aligned 32-bit read is atomic on this Cortex-M3 target. */
+    return tick_count;
+}
+
+uint32_t get_time(void)
+{
+    /* Unsigned millisecond timestamp wraps after approximately 49.7 days. */
+    return SCH_GetTicks() * SCH_TICK_MS;
+}
+\end{lstlisting}
+
+The update takes $O(1)$ time for any number of registrations. An aligned 32-bit read is atomic on this Cortex-M3 target. The unsigned millisecond timestamp has 10~ms resolution and wraps after approximately 49.7 days. Physical timing accuracy also depends on the oscillator and callback dispatch latency.
+
+\paragraph{SCH\_Add\_Task}
+Registration validates the callback pointer, interval bounds, available capacity, and ID sequence. A valid registration receives the deadline \texttt{current tick + DELAY}, its period, and a unique ID. The returned ID enables later deletion. Failure returns \texttt{SCH\_NO\_TASK\_ID}, defined as zero, and records the reason in \texttt{last\_error}.
+
+\begin{lstlisting}[caption={Adding a registration and returning its ID},language=C]
+uint32_t SCH_Add_Task(void (*pFunction)(void), uint32_t DELAY, uint32_t PERIOD)
+{
+    SCH_Task task;
+    if (pFunction == NULL) {
+        last_error = SCH_ERR_NULL_TASK;
+        return SCH_NO_TASK_ID;
+    }
+    if (DELAY > SCH_MAX_INTERVAL || PERIOD > SCH_MAX_INTERVAL) {
+        last_error = SCH_ERR_INTERVAL;
+        return SCH_NO_TASK_ID;
+    }
+    if (task_count >= SCH_MAX_TASKS) {
+        last_error = SCH_ERR_FULL;
+        return SCH_NO_TASK_ID;
+    }
+    if (next_id == 0U) {
+        last_error = SCH_ERR_ID_EXHAUSTED;
+        return SCH_NO_TASK_ID;
+    }
+    task.pTask = pFunction;
+    task.deadline = SCH_GetTicks() + DELAY;
+    task.period = PERIOD;
+    task.id = next_id++;
+    insert_task(task);
+    return task.id;
+}
+\end{lstlisting}
+
+For example, adding \texttt{task1} at tick zero with delay and period both equal to 50 schedules its first execution at tick 50, or 500~ms. Adding it at tick 20 with the same delay instead produces deadline 70. The queue stores a copy of the local task record.
+
+\paragraph{SCH\_Dispatch\_Tasks}
+The main loop repeatedly calls the dispatcher. An empty queue or a future first deadline causes an immediate return. An eligible task is copied out and removed. A periodic task is reinserted with its next planned deadline before the callback is invoked.
+
+\begin{lstlisting}[caption={Dispatching the earliest eligible callback},language=C]
+void SCH_Dispatch_Tasks(void)
+{
+    SCH_Task task;
+    if (task_count == 0U || time_before(SCH_GetTicks(), queue[0].deadline)) {
+        return;
+    }
+    task = queue[0];
+    remove_at(0U);
+    if (task.period != 0U) {
+        /* Use the planned deadline, not callback completion time. */
+        task.deadline += task.period;
+        insert_task(task);
+    }
+    /* Queue is consistent before the callback: it can add/delete tasks,
+     * including deleting itself. No interrupt lock surrounds user code.
+     * One callback per dispatch call; main immediately calls us again. */
+    task.pTask();
+}
+\end{lstlisting}
+
+Adding the period to the previous deadline preserves the planned cadence. If execution is late, successive dispatcher calls catch up overdue releases in deadline order. Each dispatch call executes at most one callback. The callback runs after the queue is consistent, so it may add or cancel registrations, including its own future periodic release. Callbacks must return promptly and avoid nested dispatcher calls.
+
+\paragraph{SCH\_Delete\_Task}
+Deletion searches the queue for a registration ID, removes the matching entry, and returns \texttt{SCH\_OK}, defined as zero. A missing ID sets \texttt{SCH\_ERR\_ID\_NOT\_FOUND} and returns \texttt{SCH\_ERROR}, defined as one.
+
+\begin{lstlisting}[caption={Deleting a task by registration ID},language=C]
+uint8_t SCH_Delete_Task(uint32_t taskID)
+{
+    uint8_t i;
+    for (i = 0U; i < task_count; ++i) {
+        if (queue[i].id == taskID) {
+            remove_at(i);
+            return SCH_OK;
+        }
+    }
+    last_error = SCH_ERR_ID_NOT_FOUND;
+    return SCH_ERROR;
+}
+\end{lstlisting}
+
+\paragraph{Complexity and diagnostic functions}
+Let $n$ denote the number of registered tasks. The following bounds exclude the user callback execution time.
+\begin{table}[!htp]
+    \centering
+    \begin{tabular}{lll}
+        \toprule
+        Operation & Worst-case time & Main work \\
+        \midrule
+        \texttt{SCH\_Update()} & $O(1)$ & Increment one counter \\
+        \texttt{SCH\_GetTicks()}, \texttt{get\_time()} & $O(1)$ & Read and convert time \\
+        \texttt{SCH\_Add\_Task()} & $O(n)$ & Shift entries for insertion \\
+        Dispatch with no eligible task & $O(1)$ & Check the first deadline \\
+        Dispatch with an eligible task & $O(n)$ & Remove and possibly reinsert \\
+        \texttt{SCH\_Delete\_Task()} & $O(n)$ & Find ID and shift entries \\
+        \bottomrule
+    \end{tabular}
+    \caption{Time complexity of scheduler operations}
+    \label{lab4_complexity}
+\end{table}
+
+Array operations execute in the main context. The timer ISR performs the constant-time clock update. \texttt{SCH\_GetTaskCount()} returns the queue size. \texttt{SCH\_GetLastError()} exposes the last recorded error, which is retained until initialization. \texttt{deleteAllTasks()} clears the queue count while retaining the clock and ID sequence.
+
+\subsubsection{Application integration}
+\paragraph{Main loop and timer callback}
+The application registers all initial callbacks before enabling the timer. Resetting the hardware counter and clearing its update flag establish the initial timer state.
+
+\begin{lstlisting}[caption={Startup sequence and timer callback in main.c},language=C]
+MX_GPIO_Init();
+  MX_USART1_UART_Init();
+  MX_TIM2_Init();
+  /* USER CODE BEGIN 2 */
+  App_Init();
+  __HAL_TIM_SET_COUNTER(&htim2, 0U);
+  __HAL_TIM_CLEAR_FLAG(&htim2, TIM_FLAG_UPDATE);
+  if (HAL_TIM_Base_Start_IT(&htim2) != HAL_OK) {
+    Error_Handler();
+  }
+
+while (1)
+{
+    SCH_Dispatch_Tasks();
+}
+
+void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim)
+{
+  if (htim->Instance == TIM2) SCH_Update();
+}
+\end{lstlisting}
+
+TIM2 has NVIC priority zero and USART1 has priority one. Their interrupt handlers call \texttt{HAL\_TIM\_IRQHandler(\&htim2)} and \texttt{HAL\_UART\_IRQHandler(\&huart1)}. HAL then invokes the corresponding callbacks.
+
+\paragraph{Application initialization and LED tasks}
+\texttt{App\_Init()} resets the log queue and diagnostic counters, turns the LEDs off, calls \texttt{SCH\_Init()}, registers application tasks, and sends two startup messages. \texttt{add\_checked()} checks the ID returned by registration and invokes \texttt{Error\_Handler()} on failure. IDs are retained when later cancellation is needed.
+
+\begin{lstlisting}[caption={Checked registration and five LED callbacks},language=C]
+static uint32_t add_checked(void (*fn)(void), uint32_t delay, uint32_t period)
+{
+    uint32_t id = SCH_Add_Task(fn, delay, period);
+    if (id == SCH_NO_TASK_ID) Error_Handler();
+    return id;
+}
+
+void task1(void) { HAL_GPIO_TogglePin(led0_GPIO_Port, led0_Pin); log_event("LED1 PERIOD=500ms"); }
+void task2(void) { HAL_GPIO_TogglePin(led1_GPIO_Port, led1_Pin); log_event("LED2 PERIOD=1000ms"); }
+void task3(void) { HAL_GPIO_TogglePin(led2_GPIO_Port, led2_Pin); log_event("LED3 PERIOD=1500ms"); }
+void task4(void) { HAL_GPIO_TogglePin(led3_GPIO_Port, led3_Pin); log_event("LED4 PERIOD=2000ms"); }
+void task5(void) { HAL_GPIO_TogglePin(led4_GPIO_Port, led4_Pin); log_event("LED5 PERIOD=2500ms"); }
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Application initialization and all initial registrations},language=C]
+void App_Init(void)
+{
+    /* Called once after UART init, before starting TIM2. LEDs are active-low. */
+    log_head = log_tail = log_count = log_busy = 0U;
+    App_TickCallbackCount = App_LogDropped = App_UartErrors = 0U;
+    HAL_GPIO_WritePin(GPIOA, led0_Pin | led1_Pin | led2_Pin |
+                     led3_Pin | led4_Pin, GPIO_PIN_SET);
+    SCH_Init();
+    add_checked(task1,  50U,  50U);  /* First at 0.5 s, then every 0.5 s. */
+    add_checked(task2, 100U, 100U);
+    add_checked(task3, 150U, 150U);
+    add_checked(task4, 200U, 200U);
+#if APP_VISIBLE_DELETE_DEMO
+    led5_id = add_checked(task5, 250U, 250U);
+#else
+    add_checked(task5, 250U, 250U);
+#endif
+    add_checked(trace_tick, 1U, 1U);
+    /* Register deliberately out of deadline order. Expect B, C, A. */
+    add_checked(shot_a, 30U, 0U);
+    add_checked(shot_b, 10U, 0U);
+    add_checked(shot_c, 20U, 0U);
+    cancelled_id = add_checked(should_not_run, 70U, 0U);
+    add_checked(cancel_task, 60U, 0U);
+#if APP_VISIBLE_DELETE_DEMO
+    add_checked(stop_led5, 1000U, 0U);
+    add_checked(restart_led5, 1200U, 0U);
+#endif
+    log_event("LAB4 START: TICK=10MS; UART1=115200");
+    log_event("EXPECT B@100 C@200 A@300 CANCEL_OK@600");
+}
+\end{lstlisting}
+
+\paragraph{Interrupt-driven UART logging}
+\texttt{log\_event()} reads \texttt{get\_time()}, formats a ten-digit timestamp and event tag, appends carriage return and line feed, and enqueues the message. The circular log queue has 16 entries of up to 64 bytes. Enqueueing briefly masks interrupts to protect state shared with the USART interrupt, then restores the previous interrupt mask.
+
+\begin{lstlisting}[caption={Formatting and queueing timestamped log messages},language=C]
+static void log_event(const char *tag)
+{
+    uint8_t line[LOG_WIDTH];
+    uint16_t n = 0U, i;
+    uint32_t value = get_time();
+    uint32_t divisor = 1000000000UL;
+    uint32_t saved;
+    line[n++] = 'T'; line[n++] = '=';
+    do {
+        line[n++] = (uint8_t)('0' + (value / divisor) % 10U);
+        divisor /= 10U;
+    } while (divisor != 0U);
+    line[n++] = ' ';
+    while (*tag != '\0' && n < LOG_WIDTH - 2U) {
+        line[n++] = (uint8_t)*tag++;
+    }
+    line[n++] = '\r'; line[n++] = '\n';
+
+    saved = __get_PRIMASK();
+    __disable_irq();
+    if (log_count == LOG_DEPTH) {
+        ++App_LogDropped;
+    } else {
+        for (i = 0U; i < n; ++i) log_data[log_tail][i] = line[i];
+        log_length[log_tail] = n;
+        log_tail = (uint8_t)((log_tail + 1U) % LOG_DEPTH);
+        ++log_count;
+        start_tx();
+    }
+    __set_PRIMASK(saved);
+}
+\end{lstlisting}
+
+\begin{lstlisting}[caption={Starting and completing UART transmission},language=C]
+static void start_tx(void)
+{
+    if (log_busy == 0U && log_count != 0U) {
+        log_busy = 1U;
+        if (HAL_UART_Transmit_IT(&huart1, log_data[log_head],
+                                log_length[log_head]) != HAL_OK) {
+            log_busy = 0U;
+            ++App_UartErrors;
+        }
+    }
+}
+
+void HAL_UART_TxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART1 && log_busy != 0U) {
+        log_head = (uint8_t)((log_head + 1U) % LOG_DEPTH);
+        --log_count;
+        log_busy = 0U;
+        start_tx();
+    }
+}
+\end{lstlisting}
+
+\texttt{HAL\_UART\_Transmit\_IT()} allows a task to return while USART1 sends its message. The completion callback consumes the finished entry and starts the next one. \texttt{App\_LogDropped} counts messages discarded when the queue is full, and \texttt{App\_UartErrors} counts failed transmit starts. Timestamps describe when the callback logs its event; serial delivery may finish later. The short enqueue critical section and application callbacks contribute to dispatch latency.
 
 \subsection{Demonstration}
 
@@ -752,6 +1141,121 @@ Note this is not a complete list. The following designs are considered unsatisfa
 
 
 
+
+\subsubsection{Implementation demonstrations and evidence}
+The following cases address the handout's Demonstration requirements using the supplied simulation captures and four demonstration videos.
+
+\subsubsection{Regular 10 ms timer tick}
+TIM2 uses an 8~MHz input clock, prescaler 7999, and period 9. The update interval is
+\[
+T_{\mathrm{tick}} =
+\frac{(7999+1)(9+1)}{8\,000\,000}
+=0.01~\mathrm{s}=10~\mathrm{ms}.
+\]
+Each update interrupt calls \texttt{SCH\_Update()} once.
+
+In CubeMX, enable TIM2 with Internal Clock, Up counter mode, Prescaler = 7999, and Counter Period (ARR) = 9. Use HSI at 8~MHz without PLL and APB1 divider 1, giving an 8~MHz TIM2 input. Enable the TIM2 global interrupt in NVIC. After application initialization, clear \texttt{TIM\_FLAG\_UPDATE} and call \texttt{HAL\_TIM\_Base\_Start\_IT(\&htim2)}. The TIM2 HAL callback calls \texttt{SCH\_Update()}, and \texttt{SCH\_TICK\_MS = 10U} converts scheduler ticks to milliseconds. No configuration screenshot is needed.
+
+\subsubsection{A callback every 10 ms and get\_time output}
+The timer tick advances the clock in interrupt context. The registration \texttt{add\_checked(trace\_tick, 1U, 1U)} schedules a callback every tick in the main context.
+
+\begin{lstlisting}[caption={Application callback scheduled every 10 ms},language=C]
+static void trace_tick(void)
+{
+    ++App_TickCallbackCount;
+#if APP_TRACE_10MS
+    log_event("TICK");
+#endif
+}
+\end{lstlisting}
+
+The default source defines \texttt{APP\_TRACE\_10MS} as zero in \texttt{tasks.h}. The code capture shows this macro set to one for the 10 ms demonstration; rebuild and load that configuration to reproduce it. Expected TICK timestamps are 10, 20, 30~ms and subsequent multiples of 10~ms, interleaved with other events. This exercises the required timestamp print on every callback. Check the capture for delays and dropped messages. The timestamp representation has 10~ms resolution; the oscillator and execution latency determine actual accuracy.
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{source/picture/bai_5/lab4_tick_10ms_1.png}
+    \includegraphics[width=0.9\linewidth]{source/picture/bai_5/lab4_tick_10ms_2.png}
+    \caption{10 ms demo: trace macro enabled and consecutive TICK timestamps}
+    \label{lab4_tick_10ms}
+\end{figure}
+
+Demonstration video: \href{https://github.com/quangnguyencomeng/CO3009-261-CC-2453052/blob/main/Lab/lab_reports/source/vids/lab4_tick_10ms.mp4}{10 ms callback demonstration video}.
+
+\subsubsection{Five periodic tasks with different concurrent intervals}
+The first five registrations in \texttt{App\_Init()} have delay and period values of 50, 100, 150, 200, and 250 ticks. Thus, their first executions occur at 500, 1000, 1500, 2000, and 2500~ms and repeat at their respective intervals. LED1 and LED2 share the 1000~ms deadline. At 2000~ms, LED1, LED2, and LED4 are due. The dispatcher calls them sequentially in ID order. Their timestamps can be equal when the callbacks log within the same tick.
+
+The periodic-task video below records the concurrent LED callbacks and their timestamps.
+
+Demonstration video: \href{https://github.com/quangnguyencomeng/CO3009-261-CC-2453052/blob/main/Lab/lab_reports/source/vids/lab4_periodic_tasks.mp4}{Periodic-task demonstration video}.
+
+\subsubsection{One-shot callbacks registered before the main loop}
+The application registers A with delay 30, B with delay 10, and C with delay 20 ticks, each with period zero. The timer starts after registration, so the positive delays allow the main loop to begin before these callbacks become due.
+
+\begin{lstlisting}[caption={One-shot callbacks that print their execution timestamps},language=C]
+static void shot_a(void) { log_event("ONCE_A_300MS"); }
+static void shot_b(void) { log_event("ONCE_B_100MS"); }
+static void shot_c(void) { log_event("ONCE_C_200MS"); }
+\end{lstlisting}
+
+The expected execution order is B at 100~ms, C at 200~ms, then A at 300~ms. These messages demonstrate ordering by deadline despite the A, B, C registration order. The startup EXPECT message describes the planned sequence; the ONCE messages provide execution evidence.
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{source/picture/bai_5/lab4_oneshot_cancel.png}
+    \caption{One-shot order B, C, A and successful cancellation at 600 ms}
+    \label{lab4_oneshot_cancel}
+\end{figure}
+
+Demonstration video: \href{https://github.com/quangnguyencomeng/CO3009-261-CC-2453052/blob/main/Lab/lab_reports/source/vids/lab4_oneshot_cancel.mp4}{One-shot and cancellation demonstration video}.
+
+\subsubsection{Testing task deletion}
+The application saves the ID of \texttt{should\_not\_run}, which is scheduled at tick 70, and registers \texttt{cancel\_task} at tick 60. Successful deletion produces CANCEL\_OK at 600~ms. The trace should continue past 700~ms with the cancelled callback absent.
+
+\begin{lstlisting}[caption={Deleting a one-shot registration before its deadline},language=C]
+static void should_not_run(void) { log_event("FAIL_CANCELLED_TASK_RAN"); }
+
+static void cancel_task(void)
+{
+    log_event(SCH_Delete_Task(cancelled_id) == SCH_OK ? "CANCEL_OK" : "CANCEL_FAIL");
+}
+\end{lstlisting}
+
+Figure~\ref{lab4_oneshot_cancel} shows CANCEL\_OK at 600~ms and later output beyond the cancelled 700~ms deadline. The optional visible LED5 scenario is enabled by setting \texttt{APP\_VISIBLE\_DELETE\_DEMO} to one in \texttt{tasks.h}, rebuilding, and loading the new ELF. This stores the LED5 ID and enables stop and restart callbacks at ticks 1000 and 1200.
+
+\begin{lstlisting}[caption={Optional LED5 deletion and re-registration},language=C]
+static void stop_led5(void)
+{
+    if (SCH_Delete_Task(led5_id) == SCH_OK) {
+        HAL_GPIO_WritePin(led4_GPIO_Port, led4_Pin, GPIO_PIN_SET);
+        log_event("LED5_STOPPED");
+    } else log_event("LED5_DELETE_FAIL");
+}
+
+static void restart_led5(void)
+{
+    led5_id = add_checked(task5, 250U, 250U);
+    log_event("LED5_RESTART_SCHEDULED");
+}
+\end{lstlisting}
+
+At 10~s, LED5 toggles before the stop callback because it has the earlier ID for that shared deadline. The stop callback deletes its future registration and forces the LED off. At 12~s, a new LED5 registration is created with a 250-tick initial delay. Its first resumed toggle is at 14.5~s, followed by 17~s. The old 12.5~s release has been cancelled.
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.9\linewidth]{source/picture/bai_5/lab4_led5_restart_1.png}
+    \includegraphics[width=0.9\linewidth]{source/picture/bai_5/lab4_led5_restart_2.png}
+    \caption{LED5 demo enabled: stop at 10 s, re-register at 12 s, resume at 14.5 s}
+    \label{lab4_led5_restart}
+\end{figure}
+
+Demonstration video: \href{https://github.com/quangnguyencomeng/CO3009-261-CC-2453052/blob/main/Lab/lab_reports/source/vids/lab4_led5_restart.mp4}{LED5 deletion and restart video}.
+
+\subsubsection{Discussion of the implementation}
+The ordered queue supports multiple pending timeouts, deterministic ordering for equal deadlines, periodic callbacks, and cancellation by ID. Insertion and removal take $O(n)$ time in the main context, while \texttt{SCH\_Update()} takes $O(1)$ in the timer interrupt. Overdue releases are caught up in deadline order, although a long-running callback delays other tasks.
+
+The supplied source has \texttt{APP\_TRACE\_10MS = 0} and \texttt{APP\_VISIBLE\_DELETE\_DEMO = 1}. The 10 ms capture uses \texttt{APP\_TRACE\_10MS = 1}, as shown in its code image. The LED5 capture shows the deletion switch enabled and the expected resumed callback at 14.5~s. Rebuild the matching configuration when reproducing each demonstration.
+
+The handout requests a regular 10~ms tick and also lists interrupt frequencies greater than 10~Hz among unsatisfactory designs. A 10~ms tick corresponds to 100~Hz. This implementation follows the explicit 10~ms tick and callback requirements; the conflicting wording requires instructor clarification if it affects assessment.
 
 \subsection{Submission}
 
