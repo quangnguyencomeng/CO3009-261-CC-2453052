@@ -716,6 +716,17 @@ The earlier examples reproduce the instructional approach in the handout. The im
 The aim of this lab is to design and implement a cooperate scheduler to accurately provide timeouts and trigger activities. You should add a file for the scheduler implementation and modify the main system call loop to handle timer interrupts.
 
 \subsection{Problem}
+
+\noindent Source code and Proteus project:
+\href{https://github.com/quangnguyencomeng/CO3009-261-CC-2453052/tree/main/Lab/Lab_4}{Lab 4 cooperative scheduler on GitHub}.
+
+\begin{figure}[!htp]
+    \centering
+    \includegraphics[width=0.95\linewidth]{source/picture/bai_5/lab4_sche.png}
+    \caption{Proteus schematic for the Lab 4 cooperative scheduler}
+    \label{lab4_schematic}
+\end{figure}
+
    - Your system should have at least four functions:
    \begin{itemize}
        \item \textbf{void SCH\_Update(void)}:This function will be updated the remaining time of each tasks that are added to a queue. It will be called in the interrupt timer, for example 10 ms.
@@ -754,7 +765,7 @@ The MCU uses its internal HSI oscillator at 8~MHz, with the AHB, APB1, and APB2 
 
 The LED anodes connect to the positive supply. A high GPIO output turns the associated LED off, while a low output turns it on. Each callback toggles one LED once. Thus, a 500~ms task interval produces a complete on/off cycle of 1000~ms.
 
-The Proteus project is supplied as \texttt{Lab/LAB04\_PHU/lab04.pdsprj}. The demonstration videos show the simulation and Virtual Terminal output; Table~\ref{lab4_pins} specifies the circuit connections.
+The Proteus project is supplied as \texttt{Lab/Lab\_4/lab04.pdsprj}. The demonstration videos show the simulation and Virtual Terminal output; Table~\ref{lab4_pins} specifies the circuit connections.
 
 The application source is divided into the following modules.
 \begin{itemize}
